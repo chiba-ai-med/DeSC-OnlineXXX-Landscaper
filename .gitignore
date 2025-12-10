@@ -1,0 +1,17 @@
+._*
+*/._*
+*/*/._*
+*/*/*/._*
+*/*/*/*/._*
+
+.DS_Store
+*/.DS_Store
+*/*/.DS_Store
+*/*/*/.DS_Store
+*/*/*/*/.DS_Store
+output/
+data/
+plot/exact_ooc_pca_sparse_bincoo/
+logs/
+benchmarks/
+.snakemake/
