@@ -15,3 +15,5 @@ plot/exact_ooc_pca_sparse_bincoo/
 logs/
 benchmarks/
 .snakemake/
+landscaper*
+plot/bincoo_ca/
