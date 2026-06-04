@@ -2,16 +2,11 @@ source("src/Functions.R")
 
 ## Args
 args <- commandArgs(trailingOnly = TRUE)
-freq_path   <- args[1]  # '.../frequency.csv' (TSV: pattern_id\tj\tcount)
-name_path   <- args[2]  # 'data/col_id_disease_name_small.txt'（3列目が病名）
-finish_path <- args[3]  # '.../frequency/FINISH'
-# freq_path <- 'output/exact_ooc_pca_sparse_bincoo/6/frequency.csv'
-# name_path <- 'data/col_id_disease_name_small.txt'
-# finish_path <- 'plot/exact_ooc_pca_sparse_bincoo/6/frequency/FINISH'
-
-## 出力ディレクトリ
-outdir <- dirname(finish_path)
-dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+freq_path      <- args[1]  # '.../frequency.csv' (TSV: pattern_id\tj\tcount)
+name_path_ja   <- args[2]  # 'data/col_id_disease_name_small.txt'（CSV 3列、3列目が日本語病名）
+name_path_en   <- args[3]  # 'data/col_id_disease_name_en_small.txt'（TSV 5列、4列目が英語名）
+finish_path_ja <- args[4]  # '.../{dim}/tfidf/ja/FINISH'
+finish_path_en <- args[5]  # '.../{dim}/tfidf/en/FINISH'
 
 ## 1) frequency を読む（必ずTSV・3列）
 freq <- fread(
@@ -19,67 +14,72 @@ freq <- fread(
   col.names = c("pid", "j", "cnt")
 )
 
-## 2) 疾患名テーブルを堅牢に読む
-# まずカンマ区切り・ヘッダ無し（1列に code,id,name）
-nm <- tryCatch(
-  fread(name_path, header = FALSE, sep = ",", data.table = FALSE,
-        quote = "\"", fill = TRUE),
-  error = function(e) fread(name_path, header = TRUE, sep = ",",
-                            data.table = FALSE, quote = "\"", fill = TRUE)
-)
-# 列名を揃える（最低3列ある前提）
-if (ncol(nm) < 3) {
-  stop(sprintf("病名テーブルの列数が足りません: %s (cols=%d)", name_path, ncol(nm)))
-}
-colnames(nm)[1:3] <- c("code","id","name")
-
-# id を整数化
-nm$id <- suppressWarnings(as.integer(nm$id))
-
-## 3) 次元は frequency に合わせる（安全）
 m <- max(freq$pid)
 n <- max(freq$j)
 
-## 2') nameテーブル：先頭2カンマ分割で安全に読み、完全検証＆正規化（Functions.R内）
-nm <- read_name_table_split2(name_path, n_expected = n)   # code,id,name を復元
-disease_name <- build_disease_name_or_stop(nm, n, finish_path)  # 欠損/重複/範囲外があれば stop
-
-## 5) 疎行列（pattern × disease）を構築（dgCMatrix）
+## 2) 疎行列（pattern × disease） + TF-IDFスコア化
 M <- sparseMatrix(i = freq$pid, j = freq$j, x = freq$cnt,
                   dims = c(m, n), index1 = TRUE)
-
-# スコア差し替え
 M <- score_matrix(M, method = "tfidf", alpha = 1)
 
-## 6) 可視化（各パターン行 i の上位20疾患をタグクラウド）
+## 3) 病名ラベル（ja / en）を作成
+# ja: 既存と完全に同じ流れ（read_name_table_split2 → build_disease_name_or_stop）
+nm_ja <- read_name_table_split2(name_path_ja, n_expected = n)
+disease_name_ja <- build_disease_name_or_stop(nm_ja, n, finish_path_ja)
+
+# en: Phase 1 出力の5列TSVから取得。id を rowname とした文字ベクトル化。
+nm_en <- read_name_table_en(name_path_en)
+disease_name_en <- rep("(NA)", n)
+en_name <- nm_en$en_name
+ok <- !is.na(en_name) & nzchar(en_name) & en_name != "NA"
+disease_name_en[nm_en$id[ok]] <- en_name[ok]
+
+## 4) タグクラウド描画（言語ごとに同じロジックで生成）
 pal <- colorRampPalette(rev(brewer.pal(9, "YlOrRd")))
 
-for (i in seq_len(m)) {
-  v <- as.numeric(M[i, ])
-  if (!any(v > 0)) next
+plot_tagclouds <- function(disease_name, finish_path, lang) {
+  outdir <- dirname(finish_path)
+  dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
-  ord <- order(v, decreasing = TRUE)
-  k <- min(20L, sum(v > 0))
-  idx <- ord[seq_len(k)]
-  w   <- v[idx]  # ウェイト（出現頻度）
+  # "(NA)" 列はタグクラウドから除外
+  valid_col <- disease_name != "(NA)"
 
-  # 値が大きいほど強い色
-  colmap <- pal(k)
-  cols   <- colmap[rank(-w, ties.method = "first")]
+  for (i in seq_len(m)) {
+    v <- as.numeric(M[i, ])
+    v[!valid_col] <- 0
+    if (!any(v > 0)) next
 
-  # 日本語ラベルを折り返し
-  labels <- wrap_jp(disease_name[idx], width = 20)
+    ord <- order(v, decreasing = TRUE)
+    k <- min(10L, sum(v > 0))
+    idx <- ord[seq_len(k)]
+    w   <- v[idx]
 
-  # 出力
-  fname <- file.path(outdir, sprintf("pattern_%d.png", i))
-  png(fname, width = 900, height = 900, type = "cairo")  # Cairo で文字化け回避
-  # 可能なら日本語フォント
-  op <- par(no.readonly = TRUE)
-  on.exit(par(op), add = TRUE)
-  if ("jp" %in% names(op$font)) par(family = "jp")
-  tagcloud(labels, weights = w, col = cols)
-  dev.off()
+    colmap <- pal(k)
+    cols   <- colmap[rank(-w, ties.method = "first")]
+
+    # 言語別の折り返し（長いラベルが切れないように）
+    if (lang == "ja") {
+      labels <- wrap_jp(disease_name[idx], width = 20)
+    } else {
+      # 英語は単語境界で折り返し
+      labels <- vapply(
+        disease_name[idx],
+        function(s) paste(strwrap(s, width = 25), collapse = "\n"),
+        character(1)
+      )
+    }
+
+    fname <- file.path(outdir, sprintf("pattern_%d.png", i))
+    png(fname, width = 900, height = 900, type = "cairo")
+    op <- par(no.readonly = TRUE)
+    on.exit(par(op), add = TRUE)
+    if (lang == "ja" && "jp" %in% names(op$font)) par(family = "jp")
+    tagcloud(labels, weights = w, col = cols)
+    dev.off()
+  }
+
+  file.create(finish_path)
 }
 
-## 7) FINISH ファイル
-file.create(finish_path)
+plot_tagclouds(disease_name_ja, finish_path_ja, "ja")
+plot_tagclouds(disease_name_en, finish_path_en, "en")

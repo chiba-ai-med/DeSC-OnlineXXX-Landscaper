@@ -17,3 +17,6 @@ benchmarks/
 .snakemake/
 landscaper*
 plot/bincoo_ca/
+plot/random_walk/
+plot/diagnose/
+Rplots.pdf

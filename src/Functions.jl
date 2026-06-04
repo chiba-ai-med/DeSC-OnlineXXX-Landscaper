@@ -9,8 +9,14 @@ using Colors: distinguishable_colors, deuteranopic
 
 using Mmap
 using Printf
-using CodecZstd
-using TranscodingStreams
+# CodecZstd / TranscodingStreams は zst 入力読み込みでのみ使用。
+# 一部 container に未インストールのため optional ロード（pair_density_plots は不要）。
+try
+    @eval using CodecZstd
+    @eval using TranscodingStreams
+catch err
+    @warn "CodecZstd / TranscodingStreams not available; .zst inputs will fail" exception=err
+end
 
 @inline function bitpack_pm1_to_uint(x::AbstractVector{<:Integer})
     id::UInt64 = 0

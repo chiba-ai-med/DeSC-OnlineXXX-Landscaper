@@ -97,6 +97,16 @@ read_name_table_split2 <- function(path, n_expected) {
   nm
 }
 
+# 英語化マスタ（5列TSV: code\tid\tja_name\ten_name\tsource）を読む
+# Phase 1 の merge_disease_name_en.R が出力する形式。
+read_name_table_en <- function(path) {
+  df <- read.table(path, sep = "\t", header = TRUE, quote = "",
+                   stringsAsFactors = FALSE, encoding = "UTF-8",
+                   comment.char = "")
+  df$id <- as.integer(df$id)
+  df
+}
+
 # M をスコア化して返す（logitdiff / tfidf / pmi）
 score_matrix <- function(M, method = c("logitdiff", "tfidf", "pmi"),
   alpha = 1) {

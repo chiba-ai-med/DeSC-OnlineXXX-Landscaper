@@ -18,14 +18,16 @@ rule all:
                pca_dims=PCA_DIMS),
         expand('plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/logitdiff/FINISH',
                pca_dims=PCA_DIMS),
-        expand('plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/tfidf/FINISH',
-               pca_dims=PCA_DIMS),
+        expand('plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/tfidf/{lang}/FINISH',
+               pca_dims=PCA_DIMS, lang=['ja', 'en']),
         expand('plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/pmi/FINISH',
                pca_dims=PCA_DIMS),
         'plot/exact_ooc_pca_sparse_bincoo/pairs.png',
         'plot/exact_ooc_pca_sparse_bincoo/pairs_disease.png',
         'plot/exact_ooc_pca_sparse_bincoo/pairs_sex.png',
-        'plot/exact_ooc_pca_sparse_bincoo/pairs_age.png'
+        'plot/exact_ooc_pca_sparse_bincoo/pairs_age.png',
+        'plot/exact_ooc_pca_sparse_bincoo/loading_pc1_pc2.png',
+        'plot/exact_ooc_pca_sparse_bincoo/loading_pairs_pc1_pc7.png'
 
 rule plot_eigenvalues:
     input:
@@ -97,12 +99,14 @@ rule plot_logitdiff:
 
 rule plot_tfidf:
     input:
-        'output/exact_ooc_pca_sparse_bincoo/{pca_dims}/frequency.csv',
-        'data/col_id_disease_name_small.txt'
+        freq    = 'output/exact_ooc_pca_sparse_bincoo/{pca_dims}/frequency.csv',
+        name_ja = 'data/col_id_disease_name_small.txt',
+        name_en = 'data/col_id_disease_name_en_small.txt'
     output:
-        'plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/tfidf/FINISH'
+        ja = 'plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/tfidf/ja/FINISH',
+        en = 'plot/exact_ooc_pca_sparse_bincoo/{pca_dims}/tfidf/en/FINISH'
     container:
-        'docker://koki/desc_onlinexxx_landscaper:20250812'
+        'docker://koki/desc_onlinexxx_landscaper:20260602'
     resources:
         mem_mb=1000
     benchmark:
@@ -110,7 +114,7 @@ rule plot_tfidf:
     log:
         'logs/plot_tfidf_{pca_dims}.log'
     shell:
-        'src/plot_tfidf.sh {input} {output} >& {log}'
+        'src/plot_tfidf.sh {input.freq} {input.name_ja} {input.name_en} {output.ja} {output.en} >& {log}'
 
 rule plot_pmi:
     input:
@@ -186,7 +190,7 @@ rule plot_pairs_age:
     output:
         'plot/exact_ooc_pca_sparse_bincoo/pairs_age.png'
     container:
-        'docker://koki/desc_onlinexxx_landscaper:20250812'
+        'docker://koki/desc_onlinexxx_landscaper:20260602'
     resources:
         mem_mb=1000
     benchmark:
@@ -195,3 +199,41 @@ rule plot_pairs_age:
         'logs/plot_pairs_age.log'
     shell:
         'src/plot_pairs_w_label_continuous.sh {input} {output} >& {log}'
+
+rule plot_loading:
+    input:
+        eigen = 'output/exact_ooc_pca_sparse_bincoo/7/Eigen_vectors.csv',
+        name  = 'data/col_id_disease_name_en_small.txt'
+    output:
+        'plot/exact_ooc_pca_sparse_bincoo/loading_pc1_pc2.png'
+    container:
+        'docker://koki/desc_onlinexxx_landscaper:20260602'
+    resources:
+        mem_mb=1000
+    benchmark:
+        'benchmarks/plot_loading.txt'
+    log:
+        'logs/plot_loading.log'
+    shell:
+        'src/plot_loading.sh {input.eigen} {input.name} {output} >& {log}'
+
+rule plot_loading_pairs:
+    input:
+        eigen = 'output/exact_ooc_pca_sparse_bincoo/7/Eigen_vectors.csv',
+        name  = 'data/col_id_disease_name_en_small.txt'
+    output:
+        'plot/exact_ooc_pca_sparse_bincoo/loading_pairs_pc1_pc7.png'
+    params:
+        top_n_label = 8,
+        q_thresh    = 0.05,
+    container:
+        'docker://koki/desc_onlinexxx_landscaper:20260602'
+    resources:
+        mem_mb=2000
+    benchmark:
+        'benchmarks/plot_loading_pairs.txt'
+    log:
+        'logs/plot_loading_pairs.log'
+    shell:
+        'src/plot_loading_pairs.sh {input.eigen} {input.name} {output} '
+        '{params.top_n_label} {params.q_thresh} >& {log}'
